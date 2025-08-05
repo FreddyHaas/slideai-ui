@@ -1,52 +1,114 @@
 'use client'
-import { ChevronDown, FileSpreadsheet } from 'lucide-react'
-import { useState } from 'react'
-import { Grid } from 'react-spreadsheet-grid'
+import { AlertTriangle, Check, ChevronDown, FileSpreadsheet, Loader, Loader2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { Header } from '../components/Header'
-import { Spinner } from '../components/Spinner'
-
-const formatCellValue = (value: any): string => {
-  if (typeof value === 'number') {
-    // Format numbers with up to 2 decimal places, and remove trailing zeros
-    return Number(value.toFixed(2)).toString()
-  }
-  return value?.toString() || ''
-}
+import Spreadsheet from '../components/spreadsheet'
+import { Progress } from '../components/ui/progress'
+import { Textarea } from '../components/ui/textarea'
 
 export default function Home() {
-  const [excelData, setExcelData] = useState<any[]>([])
-  const [headers, setHeaders] = useState<string[]>([])
+  const [data, setData] = useState<any[]>([])
   const [view, setView] = useState<'upload' | 'preview' | 'coreMessage' | 'generatingChart' | 'download' | 'error'>('upload')
   const [chartCoreMessage, setChartCoreMessage] = useState('')
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
-  const [pptBlob, setPptBlob] = useState<Blob | null>(null)
+  const [validationIsLoading, setValidationIsLoading] = useState<boolean>(false)
+  const [isValid, setIsValid] = useState<boolean>(false)
+  const [pptName, setPptName] = useState<string | null>(null)
+  const [validationHints, setValidationHints] = useState<string[]>([])
+  const [progressValue, setProgressValue] = useState<number>(10)
+  const [progressText, setProgressText] = useState<string>('Analyzing data...')
 
   const backendHost = process.env.NEXT_PUBLIC_BACKEND_HOST
 
-  async function fetchPowerPointSlide(file: File, coreMessage: string) {
+  useEffect(() => {
+    if (view === 'generatingChart') {
+      setProgressValue(10);
+      const steps = [20, 40, 60, 80];
+      const texts = ['Analyzing data...', 'Selecting chart types...', 'Creating slides...', 'Preparing presentation...']
+      let index = 0;
+
+      const interval = setInterval(() => {
+        setProgressValue(steps[index]);
+        setProgressText(texts[index]);
+        index++;
+
+        if (index >= steps.length) {
+          clearInterval(interval);
+        }
+      }, 5000);
+
+      return () => {
+        clearInterval(interval);
+        setProgressValue(100);
+      }
+    }
+  }, [view])
+
+  useEffect(() => {
+    if (data.length === 0) return;
+
+    setValidationIsLoading(true)
+    const url = `${backendHost}/validate-data`;
+
+    const fetchData = async (inputData: string) => {
+        try {
+            const response = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ data: inputData }),
+            });
+
+            if (!response.ok) {
+                console.error("Validation request failed:", response.statusText);
+                return;
+            }
+
+            const result = await response.json();
+            setIsValid(result.is_valid);
+            setValidationHints(result.validation_hints);
+        } catch (error) {
+            console.log("Error validating data:", error);
+        }
+    };
+
+    fetchData(JSON.stringify(data));
+    setValidationIsLoading(false)
+
+  }, [data]);
+
+  async function fetchPowerPointSlide(file: File | null, data: any[] | undefined, coreMessage: string) {
     
     setView('generatingChart')
-    
+
+    let response
+    const url = `${backendHost}/powerpoint`
     const formData = new FormData()
-    formData.append('file', file)
     formData.append('chart_core_message', coreMessage)
 
-    const response = await fetch(`${backendHost}/powerpoint`, {
+    if (file) {
+      formData.append('file', file)
+      response = await fetch(url, {
+          method: 'POST',
+          body: formData,
+      })    
+    } else {
+      formData.append('data', JSON.stringify(data))
+      response = await fetch(url, {
         method: 'POST',
-        body: formData,
-    })
-      
+        body: formData
+      })
+    }
+
     if (!response.ok) {
       setView('error')
       return
     }
-      
-    const blob = await response.blob()
-    setPptBlob(blob)
+
+    const responeBody = await response.json()
+    setPptName(responeBody.presentation_name)
     setView('download')
-    return blob
-  
+    return
   }
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -59,16 +121,41 @@ export default function Home() {
       const workbook = XLSX.read(data)
       const worksheet = workbook.Sheets[workbook.SheetNames[0]]
       const jsonData = XLSX.utils.sheet_to_json(worksheet)
-      const headers = Object.keys(jsonData[0] || {})
       // Extract headers
-      setHeaders(headers)
-      setExcelData(jsonData)
+      setData(jsonData)
     }
   }
 
+  const handlePasteDataIn = async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const pasteContent = event.clipboardData.getData('text/plain');
+    if (pasteContent) {
+      setView('preview');
+
+      console.log("PasteContent")
+      console.log(pasteContent)
+
+      const rows = pasteContent.split('\n');
+
+      const headers = rows[0].split('\t').map(header => header.trim())
+
+      const parsedData = rows.slice(1).map(row => {
+        const entries = row.split('\t').map(entry => entry.trim())
+        return entries.reduce((acc, entry, index) => {
+          acc[headers[index]] = entry;
+          return acc;
+        }, {} as Record<string, string>);
+      });
+
+      console.log("Parsed data")
+      console.log(parsedData)
+
+      setData(parsedData);
+    }
+  };
+
   const resetFileUpload = () => {
-    setExcelData([])
-    setHeaders([])
+    setUploadedFile(null)
+    setData([])
     setView('upload')
   }
 
@@ -91,9 +178,7 @@ export default function Home() {
       const jsonData = XLSX.utils.sheet_to_json(worksheet)
       
       // Extract headers
-      const headers = Object.keys(jsonData[0] || {})
-      setHeaders(headers)
-      setExcelData(jsonData)
+      setData(jsonData)
       setView('preview')
     } catch (error) {
       console.error('Error fetching example file:', error)
@@ -106,29 +191,38 @@ export default function Home() {
       <div className="min-h-screen flex flex-col bg-gray-50">
         <Header />
         <main className="flex-grow flex items-center justify-center px-4">
-          <div className="max-w-md w-full space-y-6 text-center">
+          <div className="max-w-xl w-full space-y-6 text-center">
             <h1 className="text-4xl font-bold sm:text-5xl bg-gradient-to-r from-green-400 to-blue-500 bg-clip-text text-transparent">
               Turn your excel data into powerpoint slides
             </h1>
             <div className="space-y-4">
-              <div className="w-full">
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  className="sr-only"
-                  id="excel-upload"
-                  onChange={handleFileUpload}
-                />
-                <label
-                  htmlFor="excel-upload"
-                  className="relative flex flex-col items-center justify-center p-12 border-2 border-dashed border-white rounded-xl cursor-pointer bg-green-500 hover:bg-green-600 transition-colors duration-300"
-                >
-                  <FileSpreadsheet className="w-16 h-16 text-white mb-6" />
-                  <div className="bg-white text-gray-900 font-medium px-6 py-3 rounded-lg flex items-center">
-                    CHOOSE FILE
-                    <ChevronDown className="ml-2 w-4 h-4" />
-                  </div>
-                </label>
+              <div className="w-full flex gap-2">
+                <div className='w-1/2'>
+                  <Textarea
+                    placeholder='PASTE YOUR DATA HERE...'
+                    className='rounded-xl h-full placeholder:text-gray-900 placeholder:font-medium resize-none border-green-500 border-4 focus-visible:ring-0 focus-visible:border-green-600'
+                    onPaste={handlePasteDataIn}
+                  />
+                </div>
+                <div className='w-1/2'>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    className="sr-only"
+                    id="excel-upload"
+                    onChange={handleFileUpload}
+                  />
+                  <label
+                    htmlFor="excel-upload"
+                    className="relative flex flex-col items-center justify-center p-12 rounded-xl cursor-pointer bg-green-500 hover:bg-green-600 transition-colors duration-300"
+                  >
+                    <FileSpreadsheet className="w-16 h-16 text-white mb-6" />
+                    <div className="bg-white text-gray-900 font-medium px-6 py-3 rounded-lg flex items-center">
+                      CHOOSE FILE
+                      <ChevronDown className="ml-2 w-4 h-4" />
+                    </div>
+                  </label>
+                </div>
               </div>
               <button 
                 onClick={handleExampleFile} 
@@ -155,7 +249,7 @@ export default function Home() {
               <textarea
                 value={chartCoreMessage}
                 onChange={(e) => setChartCoreMessage(e.target.value)}
-                className="w-full p-3 border rounded-lg h-32 resize-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="w-full p-3 border rounded-lg h-32 resize-none"
                 placeholder="Example: Sales increased by 20% over the past 6 months"
               />
               <div className="flex gap-4">
@@ -167,12 +261,12 @@ export default function Home() {
                 </button>
                 <button
                   onClick={async () => {
-                    if (!uploadedFile) {
-                      alert('No file uploaded')
+                    if (!data) {
+                      alert('No data input')
                       return
                     }
                     try {
-                      await fetchPowerPointSlide(uploadedFile, chartCoreMessage)
+                      await fetchPowerPointSlide(uploadedFile, data, chartCoreMessage)
                     } catch {
                       setView('error')
                       return
@@ -197,27 +291,39 @@ export default function Home() {
         <main className="flex-1 p-4 overflow-hidden">
             <div className="bg-white rounded-lg shadow h-full flex flex-col p-4">
               <h2 className="text-2xl font-semibold mb-2">Does your data look ok?</h2>
-              <p className="text-gray-600 mb-4">Please make sure the <span className="font-bold">first row contains the table headers</span> - empty cells here can cause errors.</p>
-              
-              <div className="border rounded-lg flex-1 overflow-hidden">
-                {excelData.length === 0 ? (
+              <div className="mb-4">
+                {validationIsLoading ? (
+                  <div className="flex items-center gap-2 text-gray-600">
+                    <Loader2 className="animate-spin"/>
+                    <span>Validating data...</span>
+                  </div>
+                ) : isValid ? (
+                  <div className="flex items-center gap-2 bg-green-50 p-3 rounded-lg">
+                    <Check className="w-5 h-5 text-green-600" />
+                    <span className="text-green-700">Your data looks good! You can proceed to generate the chart.</span>
+                  </div>
+                ) : (
+                  <div className="bg-red-50 p-3 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <AlertTriangle className="w-5 h-5 text-red-600" />
+                      <span className="font-medium text-red-700">Please check your data for the following issues:</span>
+                    </div>
+                    <ul className="list-disc list-inside space-y-1 ml-2 text-red-700">
+                      {validationHints.map((hint, index) => (
+                        <li key={index} className="text-sm">{hint}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 overflow-hidden">
+                {data.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center">
-                    <Spinner />
+                    <Loader className="animate-spin" />
                     <p className="mt-4 text-gray-600">Loading data...</p>
                   </div>
                 ) : (
-                  <div className="h-full overflow-auto">
-                    <Grid
-                      rows={excelData}
-                      columns={headers.map(header => ({
-                        title: header,
-                        value: (row: any) => formatCellValue(row[header]),
-                        id: header
-                      }))}
-                      getRowKey={(row: any) => row.id || excelData.indexOf(row)}
-                      isColumnsResizable={false}
-                    />
-                  </div>
+                    <Spreadsheet tableData={data} />
                 )}
               </div>
 
@@ -249,9 +355,6 @@ export default function Home() {
           <div className="bg-white rounded-lg shadow h-full flex flex-col p-4 max-w-[800px] mx-auto">
             <h2 className="text-2xl font-semibold mb-6">Your PowerPoint presentation is ready!</h2>
             <div className="space-y-4">
-              <p className="text-gray-600">
-                Your presentation has been generated successfully. Click the button below to download it.
-              </p>
               <div className="flex gap-4">
                 <button 
                   onClick={() => setView('coreMessage')}
@@ -259,23 +362,20 @@ export default function Home() {
                 >
                   Back
                 </button>
-                <button
-                  onClick={() => {
-                    if (pptBlob && window !== undefined) {
-                      const url = window.URL.createObjectURL(pptBlob)
-                      const a = document.createElement('a')
-                      a.href = url
-                      a.download = 'presentation.pptx'
-                      document.body.appendChild(a)
-                      a.click()
-                      window.URL.revokeObjectURL(url)
-                      document.body.removeChild(a)
-                    }
-                  }}
-                  className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors duration-300 flex items-center gap-2"
-                >
+                <a
+                    href={`${backendHost}/powerpoint/${pptName}`}
+                    download={`${pptName}.pptx`}
+                    className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors duration-300 flex items-center gap-2"
+                  >
                   Download PowerPoint
-                </button>
+                </a>
+              </div>
+              <div className="mt-6 h-[450px] w-full border border-gray-200 rounded-lg overflow-hidden">
+                <iframe 
+                  src={`${backendHost}/pdf/${pptName}`}
+                  className="w-full h-full"
+                  title="PowerPoint Preview"
+                />
               </div>
             </div>
           </div>
@@ -312,14 +412,19 @@ export default function Home() {
     )
   }
 
-  const renderGeneratingChartView = () => {
+  const renderLoadChartView = () => {
     return (
       <div className="min-h-screen flex flex-col bg-gray-50">
         <Header />
         <main className="flex-grow flex items-center justify-center px-4">
           <div className="bg-white rounded-lg shadow h-full flex flex-col justify-center items-center p-4 max-w-[800px] min-h-[400px] min-w-[400px] mx-auto">
-            <Spinner />
-            <p className="mt-4 text-gray-600">Generating chart...</p>
+            <Progress value={progressValue}/>
+            <div className="flex items-start justify-center mt-4 w-full gap-2">
+              <Loader className=" w-8 h-8 animate-spin"/>
+              <div className="flex h-8 justify-start items-center w-full">
+                <p className="text-gray-600">{progressText}</p>
+              </div>
+            </div>
           </div>
         </main>
       </div>
@@ -337,9 +442,8 @@ export default function Home() {
     : view === 'error'
     ? renderErrorView()
     : view === 'generatingChart'
-    ? renderGeneratingChartView()
+    ? renderLoadChartView()
     : renderErrorView()
 }
-
 
 
