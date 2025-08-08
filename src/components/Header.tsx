@@ -1,5 +1,5 @@
 
-export function Header() {
+export default function Header() {
   return (
     <header className="w-full py-4 px-6 bg-white shadow-sm">
       <nav className="max-w-7xl mx-auto">

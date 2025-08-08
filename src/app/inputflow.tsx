@@ -2,7 +2,7 @@
 import { AlertTriangle, Check, ChevronDown, FileSpreadsheet, Loader, Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { Header } from '../components/Header'
+import Header from '../components/header'
 import Spreadsheet from '../components/spreadsheet'
 import { Progress } from '../components/ui/progress'
 import { Textarea } from '../components/ui/textarea'
@@ -12,7 +12,7 @@ export default function Home() {
   const [view, setView] = useState<'upload' | 'preview' | 'coreMessage' | 'generatingChart' | 'download' | 'error'>('upload')
   const [chartCoreMessage, setChartCoreMessage] = useState('')
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
-  const [validationIsLoading, setValidationIsLoading] = useState<boolean>(false)
+  const [validationIsLoading, setValidationIsLoading] = useState<boolean>(true)
   const [isValid, setIsValid] = useState<boolean>(false)
   const [pptName, setPptName] = useState<string | null>(null)
   const [validationHints, setValidationHints] = useState<string[]>([])
@@ -61,6 +61,7 @@ export default function Home() {
 
             if (!response.ok) {
                 console.error("Validation request failed:", response.statusText);
+                setIsValid(true);
                 return;
             }
 
@@ -68,7 +69,8 @@ export default function Home() {
             setIsValid(result.is_valid);
             setValidationHints(result.validation_hints);
         } catch (error) {
-            console.log("Error validating data:", error);
+          console.log("Error validating data:", error);
+          setIsValid(true);
         }
     };
 
