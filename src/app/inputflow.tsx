@@ -13,7 +13,7 @@ export default function Home() {
   const [chartCoreMessage, setChartCoreMessage] = useState('')
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [validationIsLoading, setValidationIsLoading] = useState<boolean>(true)
-  const [isValid, setIsValid] = useState<boolean>(false)
+  const [isValid, setIsValid] = useState<boolean>(true)
   const [pptName, setPptName] = useState<string | null>(null)
   const [validationHints, setValidationHints] = useState<string[]>([])
   const [progressValue, setProgressValue] = useState<number>(10)
