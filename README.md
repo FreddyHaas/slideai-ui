@@ -1,6 +1,6 @@
 ## Project
 
-Convert excel data into beautiful powerpoint charts
+Convert Excel data into beautiful PowerPoint charts
 
 [VIEW DEMO HERE](https://slideai-demo.vercel.app/)
 

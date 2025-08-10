@@ -195,7 +195,7 @@ export default function Home() {
         <main className="flex-grow flex items-center justify-center px-4">
           <div className="max-w-xl w-full space-y-6 text-center">
             <h1 className="text-4xl font-bold sm:text-5xl bg-gradient-to-r from-green-400 to-blue-500 bg-clip-text text-transparent">
-              Turn your excel data into powerpoint slides
+              Turn your Excel data into PowerPoint slides
             </h1>
             <div className="space-y-4">
               <div className="w-full flex gap-2">
